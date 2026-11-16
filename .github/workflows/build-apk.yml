@@ -18,57 +18,56 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 3. Setup Java JDK 17 untuk Android Gradle
+      - name: 3. Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
-      - name: 4. Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: 4. Aktifkan Lisensi Android SDK Bawaan
+        run: |
+          SDK_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK_DIR" >> $GITHUB_ENV
+          yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
-      - name: 5. Siapkan Folder Web (www) & Konfigurasi Capacitor
+      - name: 5. Siapkan Folder Web (www)
         run: |
           mkdir -p www
-          if [ -f "index.html" ]; then
-            cp -f index.html www/index.html
-          fi
-          for asset in manifest.json sw.js icon-192.png icon-512.png logo-politala.png kop-surat-politala.png; do
-            if [ -f "$asset" ]; then
-              cp -f "$asset" "www/$asset"
+          cp -f index.html www/index.html
+          cp -f manifest.json www/manifest.json || true
+          cp -f sw.js www/sw.js || true
+          cp -f icon-192.png www/icon-192.png || true
+          cp -f icon-512.png www/icon-512.png || true
+          cp -f logo-politala.png www/logo-politala.png || true
+          cp -f kop-surat-politala.png www/kop-surat-politala.png || true
+
+      - name: 6. Install Capacitor & Buat Proyek Android
+        run: |
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          rm -rf android
+          npx cap add android
+          npx cap sync android
+
+      - name: 7. Pasang Logo Aplikasi ke Ikon Android
+        run: |
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          for dir in android/app/src/main/res/mipmap-mdpi android/app/src/main/res/mipmap-hdpi android/app/src/main/res/mipmap-xhdpi android/app/src/main/res/mipmap-xxhdpi android/app/src/main/res/mipmap-xxxhdpi; do
+            if [ -d "$dir" ]; then
+              cp -f icon-512.png "$dir/ic_launcher.png" || true
+              cp -f icon-512.png "$dir/ic_launcher_round.png" || true
+              cp -f icon-512.png "$dir/ic_launcher_foreground.png" || true
             fi
           done
 
-      - name: 6. Install Dependencies & Buat Proyek Android Capacitor
-        run: |
-          npm install
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-          npx cap sync android
-
-      - name: 7. Pasang Logo Aplikasi ke Ikon Android (Mipmap)
-        run: |
-          if [ -f "icon-512.png" ] && [ -d "android/app/src/main/res" ]; then
-            for dir in android/app/src/main/res/mipmap-*; do
-              if [ -d "$dir" ]; then
-                cp -f icon-512.png "$dir/ic_launcher.png" || true
-                cp -f icon-512.png "$dir/ic_launcher_round.png" || true
-                cp -f icon-512.png "$dir/ic_launcher_foreground.png" || true
-              fi
-            done
-          fi
-
-      - name: 8. Build File APK Android (Debug Siap Install di HP)
+      - name: 8. Build File APK Android
         working-directory: ./android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../E-Logbook-PKL-Politala.apk
 
-      - name: 9. Upload File APK ke GitHub Actions Artifact
+      - name: 9. Upload File APK
         uses: actions/upload-artifact@v4
         with:
           name: E-Logbook-PKL-Politala-APK
           path: E-Logbook-PKL-Politala.apk
-          if-no-files-found: error
