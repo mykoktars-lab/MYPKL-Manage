@@ -1,0 +1,74 @@
+name: Build Android APK - E-Logbook PKL Politala
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Setup Java JDK 17 untuk Android Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 4. Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 5. Siapkan Folder Web (www) & Konfigurasi Capacitor
+        run: |
+          mkdir -p www
+          if [ -f "index.html" ]; then
+            cp -f index.html www/index.html
+          fi
+          for asset in manifest.json sw.js icon-192.png icon-512.png logo-politala.png kop-surat-politala.png; do
+            if [ -f "$asset" ]; then
+              cp -f "$asset" "www/$asset"
+            fi
+          done
+
+      - name: 6. Install Dependencies & Buat Proyek Android Capacitor
+        run: |
+          npm install
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: 7. Pasang Logo Aplikasi ke Ikon Android (Mipmap)
+        run: |
+          if [ -f "icon-512.png" ] && [ -d "android/app/src/main/res" ]; then
+            for dir in android/app/src/main/res/mipmap-*; do
+              if [ -d "$dir" ]; then
+                cp -f icon-512.png "$dir/ic_launcher.png" || true
+                cp -f icon-512.png "$dir/ic_launcher_round.png" || true
+                cp -f icon-512.png "$dir/ic_launcher_foreground.png" || true
+              fi
+            done
+          fi
+
+      - name: 8. Build File APK Android (Debug Siap Install di HP)
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../E-Logbook-PKL-Politala.apk
+
+      - name: 9. Upload File APK ke GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: E-Logbook-PKL-Politala-APK
+          path: E-Logbook-PKL-Politala.apk
+          if-no-files-found: error
