@@ -629,6 +629,40 @@
           </label>
           <input id="inputRestoreJson" type="file" accept=".json,application/json" class="hidden" />
         </div>
+
+        <!-- Firebase Multi-HP Cloud Sync -->
+        <div class="pt-3 border-t border-slate-100 space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">☁️ Sinkronisasi Multi-HP (Firebase)</span>
+            <span id="fbSyncBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Belum Terhubung</span>
+          </div>
+          <div class="space-y-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-500 mb-1">URL Firebase Realtime Database</label>
+              <input id="inputFbUrl" type="url" placeholder="https://project-kamu-default-rtdb.asia-southeast1.firebasedatabase.app" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] font-medium text-slate-500 mb-1">Kode Sync (Sama di Semua HP)</label>
+                <input id="inputFbSyncId" type="text" placeholder="2402301017" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" />
+              </div>
+              <div class="flex items-end">
+                <button id="btnFbSyncNow" type="button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2.5 px-3 rounded-xl transition">
+                  🔄 Simpan &amp; Sinkronkan
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btnFbPush" type="button" class="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium text-[11px] py-2 px-2.5 rounded-xl transition">
+                ☁️ Upload Data HP Ini
+              </button>
+              <button id="btnFbPull" type="button" class="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium text-[11px] py-2 px-2.5 rounded-xl transition">
+                📥 Ambil Data dari Cloud
+              </button>
+            </div>
+            <p id="fbSyncInfo" class="text-[11px] text-slate-500">Isi URL Firebase yang sama di setiap HP agar catatan logbook, rumus, dan foto selalu sinkron otomatis.</p>
+          </div>
+        </div>
       </div>
 
       <!-- LIVE A4 PRINT PREVIEW -->
@@ -661,6 +695,7 @@
         <div><label class="block text-[11px] font-medium text-slate-600 mb-1">Tempat PKL</label><input id="idInputTempat" type="text" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2" /></div>
         <div><label class="block text-[11px] font-medium text-slate-600 mb-1">Waktu / Lama PKL</label><input id="idInputWaktu" type="text" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2" /></div>
         <div><label class="block text-[11px] font-medium text-slate-600 mb-1">Pembimbing Lapangan (Opsional)</label><input id="idInputSupervisor" type="text" placeholder="(..............................................)" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2" /></div>
+        <div><label class="block text-[11px] font-medium text-slate-600 mb-1">Jabatan Pembimbing (di bawah garis)</label><input id="idInputSupervisorRole" type="text" placeholder="QC Proces SPV" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2" /></div>
       </div>
       <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
         <button id="btnCancelIdentity" type="button" class="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100">Batal</button>
@@ -809,6 +844,7 @@
           tempat: 'PT Indofood CBP Sukses Makmur',
           waktu: '26 September s.d 26 Maret 2027',
           supervisor: '',
+          supervisorRole: 'QC Proces SPV',
           photoDataUrl: ''
         },
         showDivisionInPrint: false,
@@ -842,9 +878,130 @@
       } catch (err) {}
     }
 
-    function saveState() {
+    const FB_CFG_KEY = 'elogbook_firebase_cfg_v1';
+    let fbSyncTimer = null;
+
+    function getFbConfig() {
+      try {
+        const raw = localStorage.getItem(FB_CFG_KEY);
+        const cfg = raw ? JSON.parse(raw) : {};
+        return {
+          url: (cfg.url || '').trim().replace(/\/+$/, ''),
+          syncId: (cfg.syncId || '2402301017').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || '2402301017'
+        };
+      } catch (err) {
+        return { url: '', syncId: '2402301017' };
+      }
+    }
+
+    function saveFbConfig(url, syncId) {
+      const cleanUrl = (url || '').trim().replace(/\/+$/, '');
+      const cleanId = (syncId || '2402301017').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || '2402301017';
+      try { localStorage.setItem(FB_CFG_KEY, JSON.stringify({ url: cleanUrl, syncId: cleanId })); } catch (err) {}
+      return { url: cleanUrl, syncId: cleanId };
+    }
+
+    function updateFbBadge(text, styleType) {
+      const badge = document.getElementById('fbSyncBadge');
+      if (!badge) return;
+      badge.textContent = text;
+      badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded-full ';
+      if (styleType === 'ok') badge.className += 'bg-emerald-50 text-emerald-700';
+      else if (styleType === 'busy') badge.className += 'bg-blue-50 text-blue-700';
+      else if (styleType === 'err') badge.className += 'bg-rose-50 text-rose-600';
+      else badge.className += 'bg-slate-100 text-slate-600';
+    }
+
+    function saveState(skipCloudPush) {
+      if (!skipCloudPush) appState.updatedAt = Date.now();
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); } catch (err) {}
       updateHeaderAndStats();
+      if (!skipCloudPush) {
+        const cfg = getFbConfig();
+        if (cfg.url) {
+          clearTimeout(fbSyncTimer);
+          fbSyncTimer = setTimeout(function() {
+            syncWithFirebase({ mode: 'push', silent: true });
+          }, 1500);
+        }
+      }
+    }
+
+    async function syncWithFirebase(opts) {
+      const options = opts || {};
+      const mode = options.mode || 'smart';
+      const silent = !!options.silent;
+      const cfg = getFbConfig();
+      if (!cfg.url) {
+        updateFbBadge('Belum Terhubung', 'idle');
+        if (!silent) showToast('Masukkan URL Firebase Realtime Database dulu.');
+        return;
+      }
+      const endpoint = cfg.url + '/logbooks/' + encodeURIComponent(cfg.syncId) + '.json';
+      updateFbBadge('Menyinkronkan...', 'busy');
+      try {
+        if (mode === 'push') {
+          if (!appState.updatedAt) appState.updatedAt = Date.now();
+          const res = await fetch(endpoint, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(appState)
+          });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          updateFbBadge('Tersinkron', 'ok');
+          const info = document.getElementById('fbSyncInfo');
+          if (info) info.textContent = 'Terakhir sinkron: ' + new Date().toLocaleTimeString('id-ID') + ' (ID: ' + cfg.syncId + ')';
+          if (!silent) showToast('Data berhasil diupload ke Firebase!');
+          return;
+        }
+
+        const resGet = await fetch(endpoint, { method: 'GET' });
+        if (!resGet.ok) throw new Error('HTTP ' + resGet.status);
+        const remote = await resGet.json();
+
+        const localTs = Number(appState.updatedAt || 0);
+        const remoteTs = remote && remote.updatedAt ? Number(remote.updatedAt) : 0;
+
+        if (mode === 'pull') {
+          if (remote && remote.weeks && Array.isArray(remote.weeks)) {
+            appState = Object.assign(createInitialState(), remote);
+            saveState(true);
+            renderActiveWeekLogbook(); renderTodoList(); renderFormulasList(); renderCalcHistory(); renderGallery();
+            updateFbBadge('Tersinkron', 'ok');
+            if (!silent) showToast('Data berhasil diambil dari Firebase!');
+          } else {
+            updateFbBadge('Cloud Kosong', 'idle');
+            if (!silent) showToast('Belum ada data di Firebase untuk Kode Sync ini.');
+          }
+          return;
+        }
+
+        // Smart sync: newest timestamp wins
+        if (remote && remote.weeks && Array.isArray(remote.weeks) && remoteTs > localTs) {
+          appState = Object.assign(createInitialState(), remote);
+          saveState(true);
+          renderActiveWeekLogbook(); renderTodoList(); renderFormulasList(); renderCalcHistory(); renderGallery();
+          updateFbBadge('Tersinkron', 'ok');
+          const info = document.getElementById('fbSyncInfo');
+          if (info) info.textContent = 'Data terbaru diambil dari Cloud (' + new Date().toLocaleTimeString('id-ID') + ')';
+          if (!silent) showToast('Data disinkronkan dari Cloud!');
+        } else if (!remote || localTs >= remoteTs) {
+          if (!appState.updatedAt) appState.updatedAt = Date.now();
+          const resPut = await fetch(endpoint, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(appState)
+          });
+          if (!resPut.ok) throw new Error('HTTP ' + resPut.status);
+          updateFbBadge('Tersinkron', 'ok');
+          const info = document.getElementById('fbSyncInfo');
+          if (info) info.textContent = 'Terakhir sinkron: ' + new Date().toLocaleTimeString('id-ID') + ' (ID: ' + cfg.syncId + ')';
+          if (!silent) showToast('Data HP ini tersinkron ke Firebase!');
+        }
+      } catch (err) {
+        updateFbBadge('Offline / Gagal', 'err');
+        if (!silent) showToast('Gagal terhubung ke Firebase. Cek URL atau internet.');
+      }
     }
 
     function showToast(msg) {
@@ -1045,7 +1202,8 @@
             <div style="width:240px;text-align:center;font-size:11.5pt;line-height:1.35;">
               <div>Mengetahui</div><div>Pembimbing Lapangan,</div>
               <div style="height:68px;"></div>
-              <div>${supervisorLine}</div>
+              <div style="display:inline-block;border-bottom:1px solid #000;padding:0 12px 2px 12px;">${supervisorLine}</div>
+              <div style="margin-top:2px;font-size:11pt;">${escapeHtml(st.supervisorRole !== undefined ? st.supervisorRole : 'QC Proces SPV')}</div>
             </div>
           </div>
           <div style="margin-top:18px;font-size:10pt;">*Logbook sekaligus dianggap presensi PKL</div>
@@ -1073,7 +1231,7 @@
       doc.setTextColor(0, 0, 0);
 
       let y = 12;
-      const kopImgEl = document.querySelector('#livePrintSheetPreview img');
+      const kopImgEl = (window.__preloadedKopImg && window.__preloadedKopImg.complete && window.__preloadedKopImg.naturalWidth > 0) ? window.__preloadedKopImg : document.querySelector('#livePrintSheetPreview img');
       if (kopImgEl && kopImgEl.complete && kopImgEl.naturalWidth > 0) {
         try {
           const imgH = contentW * (kopImgEl.naturalHeight / kopImgEl.naturalWidth);
@@ -1153,9 +1311,17 @@
       doc.text('Mengetahui', sigCenterX, y, { align: 'center' });
       doc.text('Pembimbing Lapangan,', sigCenterX, y + 5.5, { align: 'center' });
       const supText = (st.supervisor && st.supervisor.trim() !== '') ? '(' + st.supervisor.trim() + ')' : '(..............................................)';
-      doc.text(supText, sigCenterX, y + 26, { align: 'center' });
+      const supRole = (st.supervisorRole !== undefined) ? st.supervisorRole.trim() : 'QC Proces SPV';
+      doc.text(supText, sigCenterX, y + 25, { align: 'center' });
+      const lineHalfW = Math.max(22, doc.getTextWidth(supText) / 2 + 4);
+      doc.setLineWidth(0.3);
+      doc.line(sigCenterX - lineHalfW, y + 26.5, sigCenterX + lineHalfW, y + 26.5);
+      if (supRole) {
+        doc.setFontSize(10.5);
+        doc.text(supRole, sigCenterX, y + 31.5, { align: 'center' });
+      }
       doc.setFontSize(9.5);
-      doc.text('*Logbook sekaligus dianggap presensi PKL', marginL, y + 34);
+      doc.text('*Logbook sekaligus dianggap presensi PKL', marginL, y + 37);
       return doc;
     }
 
@@ -1808,6 +1974,7 @@
         document.getElementById('idInputTempat').value = st.tempat || '';
         document.getElementById('idInputWaktu').value = st.waktu || '';
         document.getElementById('idInputSupervisor').value = st.supervisor || '';
+        document.getElementById('idInputSupervisorRole').value = (st.supervisorRole !== undefined ? st.supervisorRole : 'QC Proces SPV');
         document.getElementById('modalIdentity').classList.remove('hidden');
       });
       document.getElementById('btnCloseIdentityModal').addEventListener('click', function() { document.getElementById('modalIdentity').classList.add('hidden'); });
@@ -1819,6 +1986,7 @@
         appState.student.tempat = document.getElementById('idInputTempat').value.trim() || 'PT Indofood CBP Sukses Makmur';
         appState.student.waktu = document.getElementById('idInputWaktu').value.trim() || '26 September s.d 26 Maret 2027';
         appState.student.supervisor = document.getElementById('idInputSupervisor').value.trim();
+        appState.student.supervisorRole = document.getElementById('idInputSupervisorRole').value.trim();
         saveState();
         renderOfficialPrintSheet();
         document.getElementById('modalIdentity').classList.add('hidden');
@@ -2101,9 +2269,29 @@
 
     window.addEventListener('DOMContentLoaded', function() {
       loadState();
+      window.__preloadedKopImg = new Image();
+      window.__preloadedKopImg.src = KOP_SURAT_SRC;
       document.getElementById('todoDatePicker').value = '2026-11-17';
       document.getElementById('galleryDateInput').value = '2026-11-17';
       document.getElementById('chkShowDivisionInPrint').checked = !!appState.showDivisionInPrint;
+
+      const fbCfg = getFbConfig();
+      document.getElementById('inputFbUrl').value = fbCfg.url;
+      document.getElementById('inputFbSyncId').value = fbCfg.syncId;
+
+      document.getElementById('btnFbSyncNow').addEventListener('click', function() {
+        saveFbConfig(document.getElementById('inputFbUrl').value, document.getElementById('inputFbSyncId').value);
+        syncWithFirebase({ mode: 'smart', silent: false });
+      });
+      document.getElementById('btnFbPush').addEventListener('click', function() {
+        saveFbConfig(document.getElementById('inputFbUrl').value, document.getElementById('inputFbSyncId').value);
+        syncWithFirebase({ mode: 'push', silent: false });
+      });
+      document.getElementById('btnFbPull').addEventListener('click', function() {
+        saveFbConfig(document.getElementById('inputFbUrl').value, document.getElementById('inputFbSyncId').value);
+        syncWithFirebase({ mode: 'pull', silent: false });
+      });
+
       initEventListeners();
       renderActiveWeekLogbook();
       renderTodoList();
@@ -2111,6 +2299,13 @@
       computeAllCalculators();
       renderCalcHistory();
       renderGallery();
+
+      if (fbCfg.url) {
+        syncWithFirebase({ mode: 'smart', silent: true });
+      }
+      window.addEventListener('online', function() {
+        if (getFbConfig().url) syncWithFirebase({ mode: 'smart', silent: true });
+      });
     });
   </script>
 </body>
